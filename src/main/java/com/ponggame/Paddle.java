@@ -1,7 +1,6 @@
 package com.ponggame;
 
 import javafx.scene.canvas.GraphicsContext;
-import javafx.scene.shape.Rectangle;
 
 /**
  * Represents a paddle in the Pong game.
@@ -42,13 +41,6 @@ public class Paddle {
      */
     public void render(GraphicsContext gc) {
         gc.fillRect(x, y, width, height);
-    }
-    
-    /**
-     * Gets the bounding box of the paddle for collision detection.
-     */
-    public Rectangle getBounds() {
-        return new Rectangle(x, y, width, height);
     }
     
     public double getX() {
