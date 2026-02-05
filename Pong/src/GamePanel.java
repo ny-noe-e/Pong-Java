@@ -37,7 +37,19 @@ public class GamePanel extends JPanel {
     // Physics
     private final double BALL_RESTITUTION = 1.0;
 
-    // Initializes game, input handling
+    // Screen shake
+    private double shakeTimeLeft = 0.0;     // seconds remaining
+    private double shakeDuration = 0.10;    // seconds
+    private int shakeStrength = 12;         // pixels
+    private int shakeOffsetX = 0;
+    private int shakeOffsetY = 0;
+
+    // Paddle glow
+    private double leftGlowTime = 0.0;
+    private double rightGlowTime = 0.0;
+    private final double GLOW_DURATION = 0.18; // seconds
+
+    // Constructor
     public GamePanel() {
         setBackground(Color.BLACK);
         setFocusable(true);
@@ -77,7 +89,20 @@ public class GamePanel extends JPanel {
         new Timer(16, e -> tick()).start();
     }
 
-    //game loop, updates positions, handles collisions, and repaints
+    private void startShake(double durationSeconds, int strengthPixels) {
+        shakeTimeLeft = Math.max(shakeTimeLeft, durationSeconds);
+        shakeDuration = durationSeconds;
+        shakeStrength = strengthPixels;
+    }
+
+    private void triggerLeftGlow() {
+        leftGlowTime = GLOW_DURATION;
+    }
+
+    private void triggerRightGlow() {
+        rightGlowTime = GLOW_DURATION;
+    }
+
     // Game loop
     private void tick() {
         long now = System.nanoTime();
@@ -143,6 +168,8 @@ public class GamePanel extends JPanel {
             vx = -vx * BALL_RESTITUTION;
 
             fireTrail.emitExplosion(x, y + BALL_SIZE / 2.0, 70);
+            startShake(0.10, 12);
+            triggerLeftGlow();
         }
 
         // RIGHT paddle collision: explosion + shake + glow
@@ -156,6 +183,8 @@ public class GamePanel extends JPanel {
             vx = -vx * BALL_RESTITUTION;
 
             fireTrail.emitExplosion(x + BALL_SIZE, y + BALL_SIZE / 2.0, 70);
+            startShake(0.10, 12);
+            triggerRightGlow();
         }
 
         // Scoring
@@ -163,20 +192,60 @@ public class GamePanel extends JPanel {
             if (x < 10) { score2++; scoredThisPass = true; }
             else if (x + BALL_SIZE > w - 10) { score1++; scoredThisPass = true; }
         }
-        if (x > 10 && x + BALL_SIZE < w - 10) {
-            scoredThisPass = false;
+        if (x > 10 && x + BALL_SIZE < w - 10) scoredThisPass = false;
+
+        // Update glow timers
+        leftGlowTime = Math.max(0.0, leftGlowTime - dt);
+        rightGlowTime = Math.max(0.0, rightGlowTime - dt);
+
+        // Update screen shake offsets
+        if (shakeTimeLeft > 0) {
+            shakeTimeLeft -= dt;
+
+            double t = Math.max(0.0, shakeTimeLeft) / Math.max(0.0001, shakeDuration); // 1..0
+            int strengthNow = (int) Math.round(shakeStrength * t);
+
+            shakeOffsetX = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
+            shakeOffsetY = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
+        } else {
+            shakeOffsetX = 0;
+            shakeOffsetY = 0;
         }
 
         repaint();
     }
 
-    //Draws the ball and paddles
+    private void drawPaddleGlow(Graphics2D g2, int x, int y, int w, int h, double glowTimeLeft) {
+        if (glowTimeLeft <= 0) return;
+
+        float a = (float) (glowTimeLeft / GLOW_DURATION); // 1..0
+        int pad = 10;          // glow thickness
+        int extra = 10;        // glow expansion
+
+        Composite old = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f * a));
+
+        // warm glow color
+        g2.setColor(new Color(1.0f, 0.8f, 0.2f, 1.0f));
+
+        // draw a few layered rectangles for a soft-ish glow
+        g2.fillRoundRect(x - extra, y - extra, w + extra * 2, h + extra * 2, 18, 18);
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f * a));
+        g2.fillRoundRect(x - (extra + pad), y - (extra + pad), w + (extra + pad) * 2, h + (extra + pad) * 2, 22, 22);
+
+        g2.setComposite(old);
+    }
+
+    // Rendering
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        g.setColor(Color.RED);
-        g.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Apply camera shake
+        g2.translate(shakeOffsetX, shakeOffsetY);
 
         // Background ash (behind everything)
         ashField.draw(g2);
@@ -195,6 +264,8 @@ public class GamePanel extends JPanel {
         int rightPx = getWidth() - PADDLE_MARGIN - PADDLE_WIDTH;
         int rightPy = (int) rightPaddleY;
 
+        drawPaddleGlow(g2, leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT, leftGlowTime);
+        drawPaddleGlow(g2, rightPx, rightPy, PADDLE_WIDTH, PADDLE_HEIGHT, rightGlowTime);
 
         g2.setColor(Color.WHITE);
         g2.fillRect(leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT);
