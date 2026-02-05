@@ -1,6 +1,5 @@
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
@@ -35,7 +34,7 @@ public class GamePanel extends JPanel {
     // Particles
     private final FireTrail fireTrail = new FireTrail();
 
-    // NEW: rotating star background (replaces ash)
+    // Rotating star background
     private final StarField starField = new StarField(260);
 
     // Shooting stars (Sternschnuppen)
@@ -72,6 +71,9 @@ public class GamePanel extends JPanel {
     private final int EDGE_GRADIENT_WIDTH = 90;
     private final int EDGE_MAX_ALPHA = 45;
 
+    // Fullscreen toggle state (F11)
+    private boolean fullscreen = false;
+
     public GamePanel() {
         setBackground(Color.BLACK);
         setFocusable(true);
@@ -86,29 +88,74 @@ public class GamePanel extends JPanel {
 
         lastNanos = System.nanoTime();
 
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                switch (e.getKeyCode()) {
-                    case KeyEvent.VK_W -> leftUp = true;
-                    case KeyEvent.VK_S -> leftDown = true;
-                    case KeyEvent.VK_UP -> rightUp = true;
-                    case KeyEvent.VK_DOWN -> rightDown = true;
-                }
-            }
-
-            @Override
-            public void keyReleased(KeyEvent e) {
-                switch (e.getKeyCode()) {
-                    case KeyEvent.VK_W -> leftUp = false;
-                    case KeyEvent.VK_S -> leftDown = false;
-                    case KeyEvent.VK_UP -> rightUp = false;
-                    case KeyEvent.VK_DOWN -> rightDown = false;
-                }
-            }
-        });
+        // Use key bindings (more reliable than KeyListener)
+        setupKeyBindings();
 
         new Timer(16, e -> tick()).start();
+    }
+
+    private void setupKeyBindings() {
+        InputMap im = getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = getActionMap();
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, false), "L_UP_P");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, true), "L_UP_R");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0, false), "L_DN_P");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0, true), "L_DN_R");
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0, false), "R_UP_P");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0, true), "R_UP_R");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0, false), "R_DN_P");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0, true), "R_DN_R");
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F11, 0, false), "TOGGLE_FS");
+
+        am.put("L_UP_P", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { leftUp = true; }});
+        am.put("L_UP_R", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { leftUp = false; }});
+        am.put("L_DN_P", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { leftDown = true; }});
+        am.put("L_DN_R", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { leftDown = false; }});
+
+        am.put("R_UP_P", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { rightUp = true; }});
+        am.put("R_UP_R", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { rightUp = false; }});
+        am.put("R_DN_P", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { rightDown = true; }});
+        am.put("R_DN_R", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { rightDown = false; }});
+
+        am.put("TOGGLE_FS", new AbstractAction() {
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                toggleFullscreen();
+            }
+        });
+    }
+
+    private void toggleFullscreen() {
+        Window w = SwingUtilities.getWindowAncestor(this);
+        if (!(w instanceof JFrame frame)) return;
+
+        GraphicsDevice device = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+
+        // Dispose is required when changing undecorated
+        frame.dispose();
+
+        fullscreen = !fullscreen;
+
+        if (fullscreen) {
+            frame.setUndecorated(true);                 // removes top border/title bar
+            frame.setResizable(false);
+            frame.setVisible(true);
+            device.setFullScreenWindow(frame);          // true fullscreen
+        } else {
+            device.setFullScreenWindow(null);           // exit fullscreen
+            frame.setUndecorated(false);
+            frame.setResizable(true);
+            frame.setVisible(true);
+
+            // optional: restore a nice window size
+            frame.setSize(900, 700);
+            frame.setLocationRelativeTo(null);
+        }
+
+        // keep input working
+        requestFocusInWindow();
     }
 
     private void startShake(double durationSeconds, int strengthPixels) {
@@ -194,7 +241,6 @@ public class GamePanel extends JPanel {
         if (w <= 0 || h <= 0) return;
         if (dt <= 0) dt = 1.0 / 60.0;
 
-        // init positions once we have a size
         if (x == 0 && y == 0) {
             x = (w - BALL_SIZE) / 2.0;
             y = (h - BALL_SIZE) / 2.0;
@@ -203,12 +249,9 @@ public class GamePanel extends JPanel {
             fireTrail.clear();
         }
 
-        // NEW: star background update
         starField.update(dt, w, h);
-
         updateShootingStars(dt, w, h);
 
-        // Paddle movement + velocity tracking
         double prevLeft = leftPaddleY;
         double prevRight = rightPaddleY;
 
@@ -223,20 +266,12 @@ public class GamePanel extends JPanel {
         leftPaddleVel = (leftPaddleY - prevLeft) / dt;
         rightPaddleVel = (rightPaddleY - prevRight) / dt;
 
-        // Ball movement
         x += vx * dt;
         y += vy * dt;
 
-        // Fire trail
-        fireTrail.emitFire(
-                x + BALL_SIZE / 2.0,
-                y + BALL_SIZE / 2.0,
-                vx, vy,
-                4
-        );
+        fireTrail.emitFire(x + BALL_SIZE / 2.0, y + BALL_SIZE / 2.0, vx, vy, 4);
         fireTrail.update(dt);
 
-        // Wall collisions
         if (x < 0) { x = 0; vx = Math.abs(vx); }
         else if (x > w - BALL_SIZE) { x = w - BALL_SIZE; vx = -Math.abs(vx); }
 
@@ -246,7 +281,6 @@ public class GamePanel extends JPanel {
         double leftX = PADDLE_MARGIN;
         double rightX = w - PADDLE_MARGIN - PADDLE_WIDTH;
 
-        // LEFT paddle hit (spin)
         if (vx < 0 &&
                 x <= leftX + PADDLE_WIDTH &&
                 x + BALL_SIZE >= leftX &&
@@ -265,7 +299,6 @@ public class GamePanel extends JPanel {
             clampBallSpeed();
         }
 
-        // RIGHT paddle hit (spin)
         if (vx > 0 &&
                 x + BALL_SIZE >= rightX &&
                 x <= rightX + PADDLE_WIDTH &&
@@ -284,29 +317,17 @@ public class GamePanel extends JPanel {
             clampBallSpeed();
         }
 
-        // Scoring + subtle edge flash
         if (!scoredThisPass) {
-            if (x < 10) {
-                score2++;
-                scoredThisPass = true;
-                flashLeftEdge();
-            } else if (x + BALL_SIZE > w - 10) {
-                score1++;
-                scoredThisPass = true;
-                flashRightEdge();
-            }
+            if (x < 10) { score2++; scoredThisPass = true; flashLeftEdge(); }
+            else if (x + BALL_SIZE > w - 10) { score1++; scoredThisPass = true; flashRightEdge(); }
         }
-        if (x > 10 && x + BALL_SIZE < w - 10) {
-            scoredThisPass = false;
-        }
+        if (x > 10 && x + BALL_SIZE < w - 10) scoredThisPass = false;
 
-        // Timers
         leftGlowTime = Math.max(0.0, leftGlowTime - dt);
         rightGlowTime = Math.max(0.0, rightGlowTime - dt);
         leftEdgeFlash = Math.max(0.0, leftEdgeFlash - dt);
         rightEdgeFlash = Math.max(0.0, rightEdgeFlash - dt);
 
-        // Screen shake offsets
         if (shakeTimeLeft > 0) {
             shakeTimeLeft -= dt;
             double t = Math.max(0.0, shakeTimeLeft) / Math.max(0.0001, shakeDuration);
@@ -454,10 +475,8 @@ public class GamePanel extends JPanel {
         // Gameplay layer (shaken)
         g2.translate(shakeOffsetX, shakeOffsetY);
 
-        // NEW: rotating star background
+        // background
         starField.draw(g2);
-
-        // Sternschnuppen (still okay to keep)
         drawShootingStars(g2);
 
         // particles behind ball
