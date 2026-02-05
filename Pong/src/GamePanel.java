@@ -2,9 +2,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
-// Main game panel: handles rendering, input, and game loop
 public class GamePanel extends JPanel {
 
     private boolean scoredThisPass = false;
@@ -25,6 +25,10 @@ public class GamePanel extends JPanel {
     private double leftPaddleY, rightPaddleY;
     private final double PADDLE_SPEED = 720.0;
 
+    // Paddle velocity (for spin)
+    private double leftPaddleVel = 0.0;   // px/s
+    private double rightPaddleVel = 0.0;  // px/s
+
     // Input flags
     private boolean leftUp, leftDown, rightUp, rightDown;
 
@@ -36,6 +40,11 @@ public class GamePanel extends JPanel {
 
     // Physics
     private final double BALL_RESTITUTION = 1.0;
+
+    // Ball spin tuning
+    private final double SPIN_FACTOR = 0.35;
+    private final double MAX_BALL_SPEED = 1500;
+    private final double MIN_BALL_SPEED = 800;
 
     // Screen shake
     private double shakeTimeLeft = 0.0;     // seconds remaining
@@ -49,7 +58,6 @@ public class GamePanel extends JPanel {
     private double rightGlowTime = 0.0;
     private final double GLOW_DURATION = 0.18; // seconds
 
-    // Constructor
     public GamePanel() {
         setBackground(Color.BLACK);
         setFocusable(true);
@@ -103,7 +111,6 @@ public class GamePanel extends JPanel {
         rightGlowTime = GLOW_DURATION;
     }
 
-    // Game loop
     private void tick() {
         long now = System.nanoTime();
         double dt = (now - lastNanos) / 1_000_000_000.0;
@@ -112,8 +119,9 @@ public class GamePanel extends JPanel {
         int w = getWidth();
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
+        if (dt <= 0) dt = 1.0 / 60.0;
 
-        // init positions on first valid frame
+        // init positions once we have a size
         if (x == 0 && y == 0) {
             x = (w - BALL_SIZE) / 2.0;
             y = (h - BALL_SIZE) / 2.0;
@@ -125,7 +133,6 @@ public class GamePanel extends JPanel {
         // background ash always updates
         ashField.update(dt, w, h);
 
-        // Paddle movement
         if (leftUp) leftPaddleY -= PADDLE_SPEED * dt;
         if (leftDown) leftPaddleY += PADDLE_SPEED * dt;
         if (rightUp) rightPaddleY -= PADDLE_SPEED * dt;
@@ -133,6 +140,9 @@ public class GamePanel extends JPanel {
 
         leftPaddleY = Math.max(0, Math.min(h - PADDLE_HEIGHT, leftPaddleY));
         rightPaddleY = Math.max(0, Math.min(h - PADDLE_HEIGHT, rightPaddleY));
+
+        leftPaddleVel = (leftPaddleY - prevLeft) / dt;
+        rightPaddleVel = (rightPaddleY - prevRight) / dt;
 
         // Ball movement
         x += vx * dt;
@@ -157,7 +167,7 @@ public class GamePanel extends JPanel {
         double leftX = PADDLE_MARGIN;
         double rightX = w - PADDLE_MARGIN - PADDLE_WIDTH;
 
-        // LEFT paddle collision: explosion + shake + glow
+        // LEFT paddle hit (spin)
         if (vx < 0 &&
                 x <= leftX + PADDLE_WIDTH &&
                 x + BALL_SIZE >= leftX &&
@@ -167,12 +177,16 @@ public class GamePanel extends JPanel {
             x = leftX + PADDLE_WIDTH;
             vx = -vx * BALL_RESTITUTION;
 
+            vy += leftPaddleVel * SPIN_FACTOR;
+
             fireTrail.emitExplosion(x, y + BALL_SIZE / 2.0, 70);
             startShake(0.10, 12);
             triggerLeftGlow();
+
+            clampBallSpeed();
         }
 
-        // RIGHT paddle collision: explosion + shake + glow
+        // RIGHT paddle hit (spin)
         if (vx > 0 &&
                 x + BALL_SIZE >= rightX &&
                 x <= rightX + PADDLE_WIDTH &&
@@ -182,29 +196,31 @@ public class GamePanel extends JPanel {
             x = rightX - BALL_SIZE;
             vx = -vx * BALL_RESTITUTION;
 
+            vy += rightPaddleVel * SPIN_FACTOR;
+
             fireTrail.emitExplosion(x + BALL_SIZE, y + BALL_SIZE / 2.0, 70);
             startShake(0.10, 12);
             triggerRightGlow();
+
+            clampBallSpeed();
         }
 
-        // Scoring
+        // Scoring + subtle edge flash
         if (!scoredThisPass) {
             if (x < 10) { score2++; scoredThisPass = true; }
             else if (x + BALL_SIZE > w - 10) { score1++; scoredThisPass = true; }
         }
-        if (x > 10 && x + BALL_SIZE < w - 10) scoredThisPass = false;
 
-        // Update glow timers
+        // Timers
         leftGlowTime = Math.max(0.0, leftGlowTime - dt);
         rightGlowTime = Math.max(0.0, rightGlowTime - dt);
 
-        // Update screen shake offsets
+        // Screen shake offsets
         if (shakeTimeLeft > 0) {
             shakeTimeLeft -= dt;
 
             double t = Math.max(0.0, shakeTimeLeft) / Math.max(0.0001, shakeDuration); // 1..0
             int strengthNow = (int) Math.round(shakeStrength * t);
-
             shakeOffsetX = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
             shakeOffsetY = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
         } else {
@@ -224,8 +240,6 @@ public class GamePanel extends JPanel {
 
         Composite old = g2.getComposite();
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f * a));
-
-        // warm glow color
         g2.setColor(new Color(1.0f, 0.8f, 0.2f, 1.0f));
 
         // draw a few layered rectangles for a soft-ish glow
@@ -243,21 +257,22 @@ public class GamePanel extends JPanel {
 
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // Apply camera shake
+        // Gameplay layer (shaken)
         g2.translate(shakeOffsetX, shakeOffsetY);
 
         // Background ash (behind everything)
         ashField.draw(g2);
 
-        // Particles behind ball
+        // particles behind ball
         fireTrail.draw(g2);
 
-        // Ball
+        // ball
         g2.setColor(Color.RED);
         g2.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
 
-        // Paddles + glow
+        // paddles + glow + nicer shape
         int leftPx = PADDLE_MARGIN;
         int leftPy = (int) leftPaddleY;
 
@@ -275,7 +290,7 @@ public class GamePanel extends JPanel {
         g2.drawString(String.valueOf(score1), (getWidth() / 2) - 30, 100);
         g2.drawString(String.valueOf(score2), (getWidth() / 2) + 30, 100);
 
-        // Undo translation (good practice)
+        // HUD layer (stable)
         g2.translate(-shakeOffsetX, -shakeOffsetY);
     }
 }
