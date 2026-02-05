@@ -35,8 +35,12 @@ public class GamePanel extends JPanel {
     // Particles
     private final FireTrail fireTrail = new FireTrail();
 
-    // Background ash
-    private final AshField ashField = new AshField(180); // amount of ash particles
+    // NEW: rotating star background (replaces ash)
+    private final StarField starField = new StarField(260);
+
+    // Shooting stars (Sternschnuppen)
+    private final ArrayList<ShootingStar> stars = new ArrayList<>();
+    private double nextStarIn = ThreadLocalRandom.current().nextDouble(2.5, 6.0);
 
     // Physics
     private final double BALL_RESTITUTION = 1.0;
@@ -47,16 +51,26 @@ public class GamePanel extends JPanel {
     private final double MIN_BALL_SPEED = 800;
 
     // Screen shake
-    private double shakeTimeLeft = 0.0;     // seconds remaining
-    private double shakeDuration = 0.10;    // seconds
-    private int shakeStrength = 12;         // pixels
+    private double shakeTimeLeft = 0.0;
+    private double shakeDuration = 0.10;
+    private int shakeStrength = 12;
     private int shakeOffsetX = 0;
     private int shakeOffsetY = 0;
 
     // Paddle glow
     private double leftGlowTime = 0.0;
     private double rightGlowTime = 0.0;
-    private final double GLOW_DURATION = 0.18; // seconds
+    private final double GLOW_DURATION = 0.18;
+
+    // HUD fonts
+    private final Font scoreFont = new Font("SansSerif", Font.BOLD, 56);
+
+    // Subtle edge damage gradient
+    private double leftEdgeFlash = 0.0;
+    private double rightEdgeFlash = 0.0;
+    private final double EDGE_FLASH_DURATION = 0.18;
+    private final int EDGE_GRADIENT_WIDTH = 90;
+    private final int EDGE_MAX_ALPHA = 45;
 
     public GamePanel() {
         setBackground(Color.BLACK);
@@ -103,12 +117,71 @@ public class GamePanel extends JPanel {
         shakeStrength = strengthPixels;
     }
 
-    private void triggerLeftGlow() {
-        leftGlowTime = GLOW_DURATION;
+    private void triggerLeftGlow() { leftGlowTime = GLOW_DURATION; }
+    private void triggerRightGlow() { rightGlowTime = GLOW_DURATION; }
+
+    private void flashLeftEdge() { leftEdgeFlash = EDGE_FLASH_DURATION; }
+    private void flashRightEdge() { rightEdgeFlash = EDGE_FLASH_DURATION; }
+
+    private static double clamp01(double v) {
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
     }
 
-    private void triggerRightGlow() {
-        rightGlowTime = GLOW_DURATION;
+    private double pulseAlpha(double timeLeft, double duration) {
+        if (timeLeft <= 0 || duration <= 0) return 0;
+        double age = 1.0 - (timeLeft / duration); // 0..1
+        double fadeIn = clamp01(age / 0.20);
+        double fadeOut = clamp01((1.0 - age) / 0.35);
+        return Math.min(fadeIn, fadeOut);
+    }
+
+    private void clampBallSpeed() {
+        double speed = Math.hypot(vx, vy);
+        if (speed <= 0.0001) return;
+
+        if (speed > MAX_BALL_SPEED) {
+            double s = MAX_BALL_SPEED / speed;
+            vx *= s;
+            vy *= s;
+        } else if (speed < MIN_BALL_SPEED) {
+            double s = MIN_BALL_SPEED / speed;
+            vx *= s;
+            vy *= s;
+        }
+    }
+
+    private void spawnShootingStar(int w, int h) {
+        boolean fromLeft = ThreadLocalRandom.current().nextBoolean();
+
+        double startX = fromLeft ? -120 : w + 120;
+        double startY = ThreadLocalRandom.current().nextDouble(h * 0.10, h * 0.60);
+
+        double dir = fromLeft ? 1.0 : -1.0;
+        double speed = ThreadLocalRandom.current().nextDouble(900, 1400);
+
+        double vx = dir * speed;
+        double vy = ThreadLocalRandom.current().nextDouble(180, 420);
+
+        double life = ThreadLocalRandom.current().nextDouble(0.60, 1.10);
+        stars.add(new ShootingStar(startX, startY, vx, vy, life));
+    }
+
+    private void updateShootingStars(double dt, int w, int h) {
+        nextStarIn -= dt;
+        if (nextStarIn <= 0) {
+            spawnShootingStar(w, h);
+            nextStarIn = ThreadLocalRandom.current().nextDouble(2.5, 6.0);
+        }
+
+        for (int i = stars.size() - 1; i >= 0; i--) {
+            ShootingStar s = stars.get(i);
+            s.update(dt);
+            if (s.isDead() || s.x < -250 || s.x > w + 250 || s.y < -250 || s.y > h + 250) {
+                stars.remove(i);
+            }
+        }
     }
 
     private void tick() {
@@ -130,8 +203,14 @@ public class GamePanel extends JPanel {
             fireTrail.clear();
         }
 
-        // background ash always updates
-        ashField.update(dt, w, h);
+        // NEW: star background update
+        starField.update(dt, w, h);
+
+        updateShootingStars(dt, w, h);
+
+        // Paddle movement + velocity tracking
+        double prevLeft = leftPaddleY;
+        double prevRight = rightPaddleY;
 
         if (leftUp) leftPaddleY -= PADDLE_SPEED * dt;
         if (leftDown) leftPaddleY += PADDLE_SPEED * dt;
@@ -207,19 +286,30 @@ public class GamePanel extends JPanel {
 
         // Scoring + subtle edge flash
         if (!scoredThisPass) {
-            if (x < 10) { score2++; scoredThisPass = true; }
-            else if (x + BALL_SIZE > w - 10) { score1++; scoredThisPass = true; }
+            if (x < 10) {
+                score2++;
+                scoredThisPass = true;
+                flashLeftEdge();
+            } else if (x + BALL_SIZE > w - 10) {
+                score1++;
+                scoredThisPass = true;
+                flashRightEdge();
+            }
+        }
+        if (x > 10 && x + BALL_SIZE < w - 10) {
+            scoredThisPass = false;
         }
 
         // Timers
         leftGlowTime = Math.max(0.0, leftGlowTime - dt);
         rightGlowTime = Math.max(0.0, rightGlowTime - dt);
+        leftEdgeFlash = Math.max(0.0, leftEdgeFlash - dt);
+        rightEdgeFlash = Math.max(0.0, rightEdgeFlash - dt);
 
         // Screen shake offsets
         if (shakeTimeLeft > 0) {
             shakeTimeLeft -= dt;
-
-            double t = Math.max(0.0, shakeTimeLeft) / Math.max(0.0001, shakeDuration); // 1..0
+            double t = Math.max(0.0, shakeTimeLeft) / Math.max(0.0001, shakeDuration);
             int strengthNow = (int) Math.round(shakeStrength * t);
             shakeOffsetX = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
             shakeOffsetY = ThreadLocalRandom.current().nextInt(-strengthNow, strengthNow + 1);
@@ -234,23 +324,125 @@ public class GamePanel extends JPanel {
     private void drawPaddleGlow(Graphics2D g2, int x, int y, int w, int h, double glowTimeLeft) {
         if (glowTimeLeft <= 0) return;
 
-        float a = (float) (glowTimeLeft / GLOW_DURATION); // 1..0
-        int pad = 10;          // glow thickness
-        int extra = 10;        // glow expansion
+        float a = (float) (glowTimeLeft / GLOW_DURATION);
 
         Composite old = g2.getComposite();
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f * a));
         g2.setColor(new Color(1.0f, 0.8f, 0.2f, 1.0f));
 
-        // draw a few layered rectangles for a soft-ish glow
-        g2.fillRoundRect(x - extra, y - extra, w + extra * 2, h + extra * 2, 18, 18);
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f * a));
-        g2.fillRoundRect(x - (extra + pad), y - (extra + pad), w + (extra + pad) * 2, h + (extra + pad) * 2, 22, 22);
+        int extra = 10;
+        int pad = 10;
+
+        g2.fillRoundRect(x - extra, y - extra, w + extra * 2, h + extra * 2, 22, 22);
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f * a));
+        g2.fillRoundRect(x - (extra + pad), y - (extra + pad), w + (extra + pad) * 2, h + (extra + pad) * 2, 26, 26);
 
         g2.setComposite(old);
     }
 
-    // Rendering
+    private void drawPaddle(Graphics2D g2, int x, int y, int w, int h, boolean isLeft) {
+        int arc = Math.min(24, h / 4);
+
+        Paint oldPaint = g2.getPaint();
+        GradientPaint gp = new GradientPaint(
+                x, y, new Color(245, 245, 245, 235),
+                x, y + h, new Color(180, 180, 180, 235)
+        );
+        g2.setPaint(gp);
+        g2.fillRoundRect(x, y, w, h, arc, arc);
+
+        g2.setPaint(oldPaint);
+        g2.setColor(new Color(255, 255, 255, 70));
+        g2.drawRoundRect(x, y, w, h, arc, arc);
+
+        g2.setColor(new Color(255, 255, 255, 90));
+        if (isLeft) g2.drawLine(x + 2, y + 8, x + 2, y + h - 8);
+        else g2.drawLine(x + w - 3, y + 8, x + w - 3, y + h - 8);
+
+        g2.setColor(new Color(0, 0, 0, 45));
+        if (isLeft) g2.drawLine(x + w - 3, y + 8, x + w - 3, y + h - 8);
+        else g2.drawLine(x + 2, y + 8, x + 2, y + h - 8);
+    }
+
+    private void drawHud(Graphics2D g2) {
+        int w = getWidth();
+
+        String s1 = String.valueOf(score1);
+        String s2 = String.valueOf(score2);
+
+        g2.setFont(scoreFont);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int centerX = w / 2;
+        int panelY = 26;
+
+        int gap = 28;
+        int textY = panelY + 54;
+
+        int w1 = fm.stringWidth(s1);
+        int w2 = fm.stringWidth(s2);
+
+        int totalTextWidth = w1 + gap + fm.stringWidth(":") + gap + w2;
+        int panelW = totalTextWidth + 44;
+        int panelH = 68;
+        int panelX = centerX - panelW / 2;
+
+        Composite old = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+        g2.setColor(Color.BLACK);
+        g2.fillRoundRect(panelX, panelY, panelW, panelH, 22, 22);
+
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.22f));
+        g2.setColor(Color.WHITE);
+        g2.drawRoundRect(panelX, panelY, panelW, panelH, 22, 22);
+        g2.setComposite(old);
+
+        int startX = centerX - totalTextWidth / 2;
+
+        g2.setColor(new Color(0, 0, 0, 170));
+        g2.drawString(s1, startX + 2, textY + 2);
+        g2.drawString(":", startX + w1 + gap + 2, textY + 2);
+        g2.drawString(s2, startX + w1 + gap + fm.stringWidth(":") + gap + 2, textY + 2);
+
+        g2.setColor(Color.WHITE);
+        g2.drawString(s1, startX, textY);
+        g2.drawString(":", startX + w1 + gap, textY);
+        g2.drawString(s2, startX + w1 + gap + fm.stringWidth(":") + gap, textY);
+    }
+
+    private void drawEdgeDamage(Graphics2D g2) {
+        int w = getWidth();
+        int h = getHeight();
+
+        double aL = pulseAlpha(leftEdgeFlash, EDGE_FLASH_DURATION);
+        if (aL > 0) {
+            int alpha = (int) Math.round(EDGE_MAX_ALPHA * aL);
+            Paint old = g2.getPaint();
+            g2.setPaint(new GradientPaint(
+                    0, 0, new Color(255, 60, 60, alpha),
+                    EDGE_GRADIENT_WIDTH, 0, new Color(255, 60, 60, 0)
+            ));
+            g2.fillRect(0, 0, EDGE_GRADIENT_WIDTH, h);
+            g2.setPaint(old);
+        }
+
+        double aR = pulseAlpha(rightEdgeFlash, EDGE_FLASH_DURATION);
+        if (aR > 0) {
+            int alpha = (int) Math.round(EDGE_MAX_ALPHA * aR);
+            Paint old = g2.getPaint();
+            g2.setPaint(new GradientPaint(
+                    w, 0, new Color(255, 60, 60, alpha),
+                    w - EDGE_GRADIENT_WIDTH, 0, new Color(255, 60, 60, 0)
+            ));
+            g2.fillRect(w - EDGE_GRADIENT_WIDTH, 0, EDGE_GRADIENT_WIDTH, h);
+            g2.setPaint(old);
+        }
+    }
+
+    private void drawShootingStars(Graphics2D g2) {
+        for (ShootingStar s : stars) s.draw(g2);
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -262,8 +454,11 @@ public class GamePanel extends JPanel {
         // Gameplay layer (shaken)
         g2.translate(shakeOffsetX, shakeOffsetY);
 
-        // Background ash (behind everything)
-        ashField.draw(g2);
+        // NEW: rotating star background
+        starField.draw(g2);
+
+        // Sternschnuppen (still okay to keep)
+        drawShootingStars(g2);
 
         // particles behind ball
         fireTrail.draw(g2);
@@ -282,15 +477,83 @@ public class GamePanel extends JPanel {
         drawPaddleGlow(g2, leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT, leftGlowTime);
         drawPaddleGlow(g2, rightPx, rightPy, PADDLE_WIDTH, PADDLE_HEIGHT, rightGlowTime);
 
-        g2.setColor(Color.WHITE);
-        g2.fillRect(leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT);
-        g2.fillRect(rightPx, rightPy, PADDLE_WIDTH, PADDLE_HEIGHT);
-
-        // UI
-        g2.drawString(String.valueOf(score1), (getWidth() / 2) - 30, 100);
-        g2.drawString(String.valueOf(score2), (getWidth() / 2) + 30, 100);
+        drawPaddle(g2, leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT, true);
+        drawPaddle(g2, rightPx, rightPy, PADDLE_WIDTH, PADDLE_HEIGHT, false);
 
         // HUD layer (stable)
         g2.translate(-shakeOffsetX, -shakeOffsetY);
+
+        drawEdgeDamage(g2);
+        drawHud(g2);
+    }
+
+    // --- Sternschnuppe (pure VFX) ---
+    private static class ShootingStar {
+        double x, y;
+        double vx, vy;
+        double life;
+        final double maxLife;
+        final double length;
+        final float thickness;
+
+        ShootingStar(double x, double y, double vx, double vy, double life) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.life = life;
+            this.maxLife = life;
+
+            this.length = ThreadLocalRandom.current().nextDouble(120, 220);
+            this.thickness = (float) ThreadLocalRandom.current().nextDouble(1.5, 2.6);
+        }
+
+        void update(double dt) {
+            x += vx * dt;
+            y += vy * dt;
+            life -= dt;
+        }
+
+        boolean isDead() { return life <= 0; }
+
+        void draw(Graphics2D g2) {
+            double t = 1.0 - (life / maxLife);
+            double fadeIn = clamp01(t / 0.15);
+            double fadeOut = clamp01((1.0 - t) / 0.35);
+            double a = Math.min(fadeIn, fadeOut);
+
+            int alphaHead = (int) Math.round(120 * a);
+            int alphaTail = 0;
+
+            double sp = Math.hypot(vx, vy);
+            double dx = (sp > 0.0001) ? (vx / sp) : 1.0;
+            double dy = (sp > 0.0001) ? (vy / sp) : 0.0;
+
+            double x2 = x - dx * length;
+            double y2 = y - dy * length;
+
+            Stroke oldS = g2.getStroke();
+            Paint oldP = g2.getPaint();
+
+            g2.setStroke(new BasicStroke(thickness, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setPaint(new GradientPaint(
+                    (float) x, (float) y, new Color(255, 255, 255, alphaHead),
+                    (float) x2, (float) y2, new Color(255, 255, 255, alphaTail)
+            ));
+            g2.drawLine((int) x, (int) y, (int) x2, (int) y2);
+
+            g2.setPaint(oldP);
+            g2.setColor(new Color(255, 255, 255, (int) Math.round(140 * a)));
+            g2.fillOval((int) (x - 2), (int) (y - 2), 4, 4);
+
+            g2.setStroke(oldS);
+            g2.setPaint(oldP);
+        }
+
+        private static double clamp01(double v) {
+            if (v < 0) return 0;
+            if (v > 1) return 1;
+            return v;
+        }
     }
 }
