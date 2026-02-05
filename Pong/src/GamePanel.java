@@ -102,8 +102,21 @@ public class GamePanel extends JPanel {
         x += vx * dt;
         y += vy * dt;
 
-        if (x < 0 || x > w - BALL_SIZE) vx = -vx;
-        if (y < 0 || y > h - BALL_SIZE) vy = -vy;
+        if (x < 0) {
+            x = 0;
+            vx = Math.abs(vx);
+        } else if (x > w - BALL_SIZE) {
+            x = w - BALL_SIZE;
+            vx = -Math.abs(vx);
+        }
+
+        if (y < 0) {
+            y = 0;
+            vy = Math.abs(vy);
+        } else if (y > h - BALL_SIZE) {
+            y = h - BALL_SIZE;
+            vy = -Math.abs(vy);
+        }
 
         double leftX = PADDLE_MARGIN;
         double rightX = w - PADDLE_MARGIN - PADDLE_WIDTH;
