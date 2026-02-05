@@ -7,6 +7,11 @@ import java.util.concurrent.ThreadLocalRandom;
 // Main game panel: handles rendering, input, and game loop
 public class GamePanel extends JPanel {
 
+    private boolean scoredThisPass = false;
+
+    int score1 = 0;
+    int score2 = 0;
+
     //Ball state
     private final int BALL_SIZE = 20;
     private double x, y;
@@ -121,6 +126,18 @@ public class GamePanel extends JPanel {
             vx = -vx * BALL_RESTITUTION;
         }
 
+        if (!scoredThisPass) {
+            if (x < 10) {
+                score2++;
+                scoredThisPass = true;
+            } else if (x + BALL_SIZE > w - 10) {
+                score1++;
+                scoredThisPass = true;
+            }
+        }
+        if (x > 10 && x + BALL_SIZE < w - 10) {
+            scoredThisPass = false;
+        }
 
         repaint();
     }
@@ -130,14 +147,21 @@ public class GamePanel extends JPanel {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        g.setColor(Color.YELLOW);
+        g.setColor(Color.RED);
         g.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
 
-        g.setColor(Color.RED);
+
+
         g.fillRect(PADDLE_MARGIN, (int) leftPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
 
-        g.setColor(Color.CYAN);
+
         g.fillRect(getWidth() - PADDLE_MARGIN - PADDLE_WIDTH,
                 (int) rightPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+
+
+
+        g.drawString(String.valueOf(score1), (getWidth() / 2) - 30, 100);
+        g.drawString(String.valueOf(score2), (getWidth() / 2) + 30, 100);
+
     }
 }
