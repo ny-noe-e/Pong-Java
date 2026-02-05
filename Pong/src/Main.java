@@ -3,23 +3,16 @@ import java.awt.*;
 
 public class Main {
     public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
 
-        JFrame frame = new JFrame("Pong");
+            JFrame frame = new JFrame("Pong");
 
+            frame.setSize(700, 600);
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setLocationRelativeTo(null);
 
-
-        frame.setSize(700, 600);
-
-        GamePanel panel = new GamePanel();
-        panel.setBackground(Color.BLACK);
-        frame.setContentPane(panel);
-
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setLocationRelativeTo(null); // center window
-
-        frame.setVisible(true);
-
-
-
+            frame.setContentPane(new GamePanel());
+            frame.setVisible(true);
+        });
     }
 }
