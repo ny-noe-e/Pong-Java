@@ -1,7 +1,6 @@
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 public class AshField {
 
@@ -13,9 +12,11 @@ public class AshField {
     }
 
     public void update(double dt, int w, int h) {
-        // lazy init / keep count stable
+        if (w <= 0 || h <= 0) return;
+
+        // ensure we always maintain the amount of ash
         while (ash.size() < targetCount) {
-            ash.add(AshParticle.randomSpawn(w, h));
+            ash.add(AshParticle.spawn(w, h, true)); // allow spawn anywhere initially
         }
 
         for (AshParticle p : ash) {
@@ -24,16 +25,13 @@ public class AshField {
     }
 
     public void draw(Graphics2D g2) {
-        Composite old = g2.getComposite();
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
-
-        // tiny light-gray specks
-        g2.setColor(new Color(0.9f, 0.9f, 0.9f, 1.0f));
+        // draw tiny specks; alpha is per particle
         for (AshParticle p : ash) {
-            int s = p.size;
-            g2.fillRect((int) p.x, (int) p.y, s, s);
-        }
+            int a = (int) (p.alpha() * 255);
+            if (a <= 0) continue;
 
-        g2.setComposite(old);
+            g2.setColor(new Color(230, 230, 230, a));
+            g2.fillRect((int) p.x, (int) p.y, p.size, p.size);
+        }
     }
 }
