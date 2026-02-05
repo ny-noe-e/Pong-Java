@@ -12,30 +12,35 @@ public class GamePanel extends JPanel {
     int score1 = 0;
     int score2 = 0;
 
-    //Ball state
+    // Ball state
     private final int BALL_SIZE = 20;
     private double x, y;
     private double vx, vy;
     private long lastNanos;
 
-    //Paddle configuration
+    // Paddle configuration
     private final int PADDLE_WIDTH = 14;
     private final int PADDLE_HEIGHT = 110;
     private final int PADDLE_MARGIN = 30;
     private double leftPaddleY, rightPaddleY;
     private final double PADDLE_SPEED = 720.0;
 
-    //input flags
+    // Input flags
     private boolean leftUp, leftDown, rightUp, rightDown;
 
-    //Physics for Ball
+    // Particles
+    private final FireTrail fireTrail = new FireTrail();
+
+    // Background ash
+    private final AshField ashField = new AshField(180); // amount of ash particles
+
+    // Physics
     private final double BALL_RESTITUTION = 1.0;
 
     // Initializes game, input handling
     public GamePanel() {
         setBackground(Color.BLACK);
         setFocusable(true);
-        requestFocusInWindow();
 
         x = 0;
         y = 0;
@@ -47,7 +52,6 @@ public class GamePanel extends JPanel {
 
         lastNanos = System.nanoTime();
 
-        //Keyboard input for both paddles (W/S = left | Arrow_up/Arrow_down = right)
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -70,11 +74,11 @@ public class GamePanel extends JPanel {
             }
         });
 
-        //Fixed-timestep loop
         new Timer(16, e -> tick()).start();
     }
 
     //game loop, updates positions, handles collisions, and repaints
+    // Game loop
     private void tick() {
         long now = System.nanoTime();
         double dt = (now - lastNanos) / 1_000_000_000.0;
@@ -84,13 +88,16 @@ public class GamePanel extends JPanel {
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
+        // init positions on first valid frame
         if (x == 0 && y == 0) {
             x = (w - BALL_SIZE) / 2.0;
             y = (h - BALL_SIZE) / 2.0;
             leftPaddleY = (h - PADDLE_HEIGHT) / 2.0;
             rightPaddleY = (h - PADDLE_HEIGHT) / 2.0;
+            fireTrail.clear();
         }
 
+        // Paddle movement
         if (leftUp) leftPaddleY -= PADDLE_SPEED * dt;
         if (leftDown) leftPaddleY += PADDLE_SPEED * dt;
         if (rightUp) rightPaddleY -= PADDLE_SPEED * dt;
@@ -99,35 +106,40 @@ public class GamePanel extends JPanel {
         leftPaddleY = Math.max(0, Math.min(h - PADDLE_HEIGHT, leftPaddleY));
         rightPaddleY = Math.max(0, Math.min(h - PADDLE_HEIGHT, rightPaddleY));
 
+        // Ball movement
         x += vx * dt;
         y += vy * dt;
 
-        if (x < 0) {
-            x = 0;
-            vx = Math.abs(vx);
-        } else if (x > w - BALL_SIZE) {
-            x = w - BALL_SIZE;
-            vx = -Math.abs(vx);
-        }
+        // Fire trail
+        fireTrail.emitFire(
+                x + BALL_SIZE / 2.0,
+                y + BALL_SIZE / 2.0,
+                vx, vy,
+                4
+        );
+        fireTrail.update(dt);
 
-        if (y < 0) {
-            y = 0;
-            vy = Math.abs(vy);
-        } else if (y > h - BALL_SIZE) {
-            y = h - BALL_SIZE;
-            vy = -Math.abs(vy);
-        }
+        // Wall collisions
+        if (x < 0) { x = 0; vx = Math.abs(vx); }
+        else if (x > w - BALL_SIZE) { x = w - BALL_SIZE; vx = -Math.abs(vx); }
+
+        if (y < 0) { y = 0; vy = Math.abs(vy); }
+        else if (y > h - BALL_SIZE) { y = h - BALL_SIZE; vy = -Math.abs(vy); }
 
         double leftX = PADDLE_MARGIN;
         double rightX = w - PADDLE_MARGIN - PADDLE_WIDTH;
 
+        // LEFT paddle collision: explosion + shake + glow
         if (vx < 0 &&
                 x <= leftX + PADDLE_WIDTH &&
                 x + BALL_SIZE >= leftX &&
                 y + BALL_SIZE >= leftPaddleY &&
                 y <= leftPaddleY + PADDLE_HEIGHT) {
+
             x = leftX + PADDLE_WIDTH;
             vx = -vx * BALL_RESTITUTION;
+
+            fireTrail.emitExplosion(x, y + BALL_SIZE / 2.0, 70);
         }
 
         if (vx > 0 &&
@@ -135,18 +147,17 @@ public class GamePanel extends JPanel {
                 x <= rightX + PADDLE_WIDTH &&
                 y + BALL_SIZE >= rightPaddleY &&
                 y <= rightPaddleY + PADDLE_HEIGHT) {
+
             x = rightX - BALL_SIZE;
             vx = -vx * BALL_RESTITUTION;
+
+            fireTrail.emitExplosion(x + BALL_SIZE, y + BALL_SIZE / 2.0, 70);
         }
 
+        // Scoring
         if (!scoredThisPass) {
-            if (x < 10) {
-                score2++;
-                scoredThisPass = true;
-            } else if (x + BALL_SIZE > w - 10) {
-                score1++;
-                scoredThisPass = true;
-            }
+            if (x < 10) { score2++; scoredThisPass = true; }
+            else if (x + BALL_SIZE > w - 10) { score1++; scoredThisPass = true; }
         }
         if (x > 10 && x + BALL_SIZE < w - 10) {
             scoredThisPass = false;
@@ -164,17 +175,30 @@ public class GamePanel extends JPanel {
         g.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
 
 
+        // Particles behind ball
+        fireTrail.draw(g2);
 
-        g.fillRect(PADDLE_MARGIN, (int) leftPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+        // Ball
+        g2.setColor(Color.RED);
+        g2.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
+
+        // Paddles + glow
+        int leftPx = PADDLE_MARGIN;
+        int leftPy = (int) leftPaddleY;
+
+        int rightPx = getWidth() - PADDLE_MARGIN - PADDLE_WIDTH;
+        int rightPy = (int) rightPaddleY;
 
 
-        g.fillRect(getWidth() - PADDLE_MARGIN - PADDLE_WIDTH,
-                (int) rightPaddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+        g2.setColor(Color.WHITE);
+        g2.fillRect(leftPx, leftPy, PADDLE_WIDTH, PADDLE_HEIGHT);
+        g2.fillRect(rightPx, rightPy, PADDLE_WIDTH, PADDLE_HEIGHT);
 
+        // UI
+        g2.drawString(String.valueOf(score1), (getWidth() / 2) - 30, 100);
+        g2.drawString(String.valueOf(score2), (getWidth() / 2) + 30, 100);
 
-
-        g.drawString(String.valueOf(score1), (getWidth() / 2) - 30, 100);
-        g.drawString(String.valueOf(score2), (getWidth() / 2) + 30, 100);
-
+        // Undo translation (good practice)
+        g2.translate(-shakeOffsetX, -shakeOffsetY);
     }
 }
