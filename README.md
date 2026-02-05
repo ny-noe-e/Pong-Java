@@ -1,2 +1,2 @@
 # Pong-Java
-Pong game with JavaFX
+Pong game with JFrame
