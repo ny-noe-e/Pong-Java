@@ -9,10 +9,17 @@ public class Main {
 
 
         frame.setSize(700, 600);
-        frame.getContentPane().setBackground(Color.BLACK);
+
+        GamePanel panel = new GamePanel();
+        panel.setBackground(Color.BLACK);
+        frame.setContentPane(panel);
+
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationRelativeTo(null); // center window
 
         frame.setVisible(true);
+
+
+
     }
 }
