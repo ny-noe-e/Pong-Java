@@ -4,23 +4,29 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.concurrent.ThreadLocalRandom;
 
+// Main game panel: handles rendering, input, and game loop
 public class GamePanel extends JPanel {
 
+    //Ball state
     private final int BALL_SIZE = 20;
     private double x, y;
     private double vx, vy;
     private long lastNanos;
 
+    //Paddle configuration
     private final int PADDLE_WIDTH = 14;
     private final int PADDLE_HEIGHT = 110;
     private final int PADDLE_MARGIN = 30;
     private double leftPaddleY, rightPaddleY;
     private final double PADDLE_SPEED = 720.0;
 
+    //input flags
     private boolean leftUp, leftDown, rightUp, rightDown;
 
+    //Physics for Ball
     private final double BALL_RESTITUTION = 1.0;
 
+    // Initializes game, input handling
     public GamePanel() {
         setBackground(Color.BLACK);
         setFocusable(true);
@@ -36,6 +42,7 @@ public class GamePanel extends JPanel {
 
         lastNanos = System.nanoTime();
 
+        //Keyboard input for both paddles (W/S = left | Arrow_up/Arrow_down = right)
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -58,9 +65,11 @@ public class GamePanel extends JPanel {
             }
         });
 
+        //Fixed-timestep loop
         new Timer(16, e -> tick()).start();
     }
 
+    //game loop, updates positions, handles collisions, and repaints
     private void tick() {
         long now = System.nanoTime();
         double dt = (now - lastNanos) / 1_000_000_000.0;
@@ -116,6 +125,7 @@ public class GamePanel extends JPanel {
         repaint();
     }
 
+    //Draws the ball and paddles
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
