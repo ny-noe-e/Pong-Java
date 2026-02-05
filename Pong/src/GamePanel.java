@@ -97,6 +97,9 @@ public class GamePanel extends JPanel {
             fireTrail.clear();
         }
 
+        // background ash always updates
+        ashField.update(dt, w, h);
+
         // Paddle movement
         if (leftUp) leftPaddleY -= PADDLE_SPEED * dt;
         if (leftDown) leftPaddleY += PADDLE_SPEED * dt;
@@ -142,6 +145,7 @@ public class GamePanel extends JPanel {
             fireTrail.emitExplosion(x, y + BALL_SIZE / 2.0, 70);
         }
 
+        // RIGHT paddle collision: explosion + shake + glow
         if (vx > 0 &&
                 x + BALL_SIZE >= rightX &&
                 x <= rightX + PADDLE_WIDTH &&
@@ -174,6 +178,8 @@ public class GamePanel extends JPanel {
         g.setColor(Color.RED);
         g.fillOval((int) x, (int) y, BALL_SIZE, BALL_SIZE);
 
+        // Background ash (behind everything)
+        ashField.draw(g2);
 
         // Particles behind ball
         fireTrail.draw(g2);
